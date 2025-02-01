@@ -1,0 +1,462 @@
+<!-- public/dashboard.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>실시간 거래 대시보드</title>
+    <!-- Bootstrap CSS 로드 -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      integrity="sha384-ENjdO4Dr2bkBIFxQpeoAAtc+LyA+6PaSHH3bzqlD2taSXZ8o3bmFf8n5XhIlyQ8w"
+      crossorigin="anonymous"
+    />
+    <!-- Socket.IO 클라이언트 스크립트 로드 -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" crossorigin="anonymous"></script>
+    <style>
+        body {
+            margin: 20px;
+            background-color: #f8f9fa;
+        }
+        h1 {
+            margin-bottom: 30px;
+        }
+        .table {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        .table th,
+        .table td {
+            border: 1px solid #dee2e6;
+            text-align: center;
+            vertical-align: middle;
+        }
+        .table thead th {
+            background-color: #343a40;
+            color: #fff;
+        }
+        .status-connected {
+            color: green;
+            font-weight: bold;
+        }
+        .status-disconnected {
+            color: red;
+            font-weight: bold;
+        }
+        .row-connected {
+            background-color: #e9f7ef; /* 연한 녹색 배경 */
+        }
+        .row-disconnected {
+            background-color: #fbeeee; /* 연한 빨간색 배경 */
+        }
+        /* 목표 달성 메시지 스타일 */
+        .goal-message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/logout" class="btn btn-danger mb-3">로그아웃</a>
+        <h1 class="text-center">실시간 거래 대시보드</h1>
+        <!-- 거래 정보 테이블 -->
+        <table id="data-table" class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>이름</th>
+                    <th>사용자 IP 주소</th>
+                    <th>총 자산 (USDT)</th>
+                    <th>현재 수익율 (%)</th>
+                    <th>미실현 손익 (USDT)</th>
+                    <th>총 자산 (미실현 손익 포함) (USDT)</th>
+                    <th>누적 수익금 (USDT)</th>
+                    <th>목표 수익금 (USDT)</th>
+                    <th>서버 통신 상태</th>
+                    <th>타임스탬프</th>
+                    <th>승인</th>
+                    <th>승인취소</th>
+                    <th>목표 달성</th>
+                </tr>
+            </thead>
+            <tbody id="data-body">
+                <!-- 실시간 거래 정보가 여기에 업데이트됩니다 -->
+            </tbody>
+        </table>
+    </div>
+
+    <!-- 목표 달성 메시지 영역 -->
+    <div id="goal-message-container" class="goal-message"></div>
+
+    <!-- Bootstrap JS 로드 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-ROAPyY4h6a9kAqV6iEOJq9k6lZPqqvIy3s6eGZKlj/DuCkC8rjCGY3bEhVB0jRiS" crossorigin="anonymous"></script>
+
+    <script>
+        const socket = io();
+
+        // 클라이언트 데이터 저장용 객체
+        const clientData = {};
+        const clientTimeouts = {};
+
+        // 데이터 유효 기간 (예: 15초)
+        const DATA_TIMEOUT = 15000;
+
+        // 서버에 연결되었을 때
+        socket.on('connect', () => {
+            console.log('서버에 연결되었습니다.');
+            // 서버에 초기 데이터를 요청합니다.
+            socket.emit('request_initial_data');
+        });
+
+        // 서버로부터 초기 데이터 수신
+        socket.on('initial_data', (allUserData) => {
+            console.log('서버로부터 초기 데이터 수신:', allUserData);
+
+            // 수신한 데이터를 clientData에 저장
+            allUserData.forEach(data => {
+                clientData[data.name] = data;
+            });
+
+            // 테이블 업데이트
+            updateTable();
+        });
+
+        // 서버로부터 사용자 정보 업데이트 수신
+        socket.on('update_user_info', (data) => {
+            console.log('사용자 정보 업데이트:', data);
+
+            // 사용자 정보만 업데이트
+            clientData[data.name] = {
+                ...clientData[data.name],
+                ...data
+            };
+
+            // 초기 승인 상태 설정 (없으면 false)
+            if (clientData[data.name].isApproved === undefined) {
+                clientData[data.name].isApproved = false;
+            }
+
+            // 초기 누적 수익금과 목표 수익금 설정 (if not present)
+            if (clientData[data.name].cumulative_profit === undefined) {
+                clientData[data.name].cumulative_profit = 0;
+            }
+            if (clientData[data.name].target_profit === undefined) {
+                clientData[data.name].target_profit = 500; // 기본값 500
+            }
+
+            // 서버 상태가 'Disconnected'인 경우, 관련 필드를 0으로 설정
+            if (data.server_status === 'Disconnected') {
+                clientData[data.name].total_balance = 0;
+                clientData[data.name].current_profit_rate = 0;
+                clientData[data.name].unrealized_pnl = 0;
+                clientData[data.name].current_total_asset = 0;
+            }
+
+            // 테이블 업데이트
+            updateTable();
+        });
+
+        // 서버로부터 목표 수익금 업데이트 수신
+        socket.on('update_target_profit', (data) => {
+            const { name, targetProfit } = data;
+            if (clientData[name]) {
+                clientData[name].target_profit = targetProfit;
+                console.log(`목표 수익금 업데이트: ${name} - ${targetProfit} USDT`);
+                updateTable();
+            }
+        });
+
+        // 서버로부터 데이터 수신 시
+        socket.on('update_data', (data) => {
+            console.log('받은 데이터:', data);
+
+            // 클라이언트별로 데이터 저장 (name을 키로 사용)
+            clientData[data.name] = {
+                ...clientData[data.name],
+                ...data
+            };
+
+            // 기존 타이머가 있으면 초기화
+            if (clientTimeouts[data.name]) {
+                clearTimeout(clientTimeouts[data.name]);
+            }
+
+            // 새로운 타이머 설정 (15초 동안 데이터가 없으면 상태를 Disconnected로 변경)
+            clientTimeouts[data.name] = setTimeout(() => {
+                // 데이터 유효 기간이 지나면 상태를 Disconnected로 변경
+                clientData[data.name].server_status = 'Disconnected';
+                clientData[data.name].total_balance = 0;
+                clientData[data.name].current_profit_rate = 0;
+                clientData[data.name].unrealized_pnl = 0;
+                clientData[data.name].current_total_asset = 0;
+                updateTable();
+            }, DATA_TIMEOUT);
+
+            // 테이블 업데이트
+            updateTable();
+        });
+
+        // 서버로부터 승인 상태 업데이트 수신
+        socket.on('update_approval_status', (data) => {
+            console.log('승인 상태 업데이트:', data);
+            if (clientData[data.name]) {
+                clientData[data.name].isApproved = data.isApproved;
+                updateTable();
+            }
+        });
+
+        // 서버로부터 목표 달성 이벤트 수신
+        socket.on('goal_achieved', (data) => {
+            const { name } = data;
+            console.log(`목표 달성 이벤트 수신: ${name}`);
+
+            // 승인취소 명령 전송
+            sendCommand('cancel_approve', name);
+
+            // 목표 달성 메시지 표시
+            showGoalAchievedMessage(name);
+        });
+
+        // 서버로부터 목표 달성 메시지 수신
+        socket.on('show_goal_message', (data) => {
+            const { message } = data;
+            // 메시지 표시 (개별 클라이언트 이름과 메시지를 함께 받는 경우 수정 필요)
+            showGoalAchievedMessage('', message);
+        });
+
+        // Socket.IO 연결이 끊어졌을 때
+        socket.on('disconnect', () => {
+            console.log('서버와의 연결이 끊어졌습니다.');
+            // 모든 클라이언트의 상태를 'Disconnected'로 설정
+            Object.keys(clientData).forEach(name => {
+                clientData[name].server_status = 'Disconnected';
+                clientData[name].total_balance = 0;
+                clientData[name].current_profit_rate = 0;
+                clientData[name].unrealized_pnl = 0;
+                clientData[name].current_total_asset = 0;
+            });
+            updateTable();
+        });
+
+        // 테이블 업데이트 함수
+        function updateTable() {
+            const tbody = document.getElementById('data-body');
+            tbody.innerHTML = ''; // 기존 테이블 내용 지우기
+
+            // clientData 객체에 저장된 데이터를 테이블에 출력
+            Object.values(clientData).forEach(data => {
+                const row = document.createElement('tr');
+
+                // 상태에 따라 행 클래스 설정
+                if (data.server_status === 'Connected') {
+                    row.classList.add('row-connected');
+                } else {
+                    row.classList.add('row-disconnected');
+                }
+
+                // 이름
+                const nameCell = document.createElement('td');
+                nameCell.textContent = data.name || '';
+                row.appendChild(nameCell);
+
+                // 사용자 IP 주소
+                const ipCell = document.createElement('td');
+                ipCell.textContent = data.user_ip || '';
+                row.appendChild(ipCell);
+
+                // 총 자산 (USDT)
+                const totalBalanceCell = document.createElement('td');
+                totalBalanceCell.textContent = data.total_balance != null ? parseFloat(data.total_balance).toLocaleString() : '';
+                row.appendChild(totalBalanceCell);
+
+                // 현재 수익율 (%)
+                const profitRateCell = document.createElement('td');
+                profitRateCell.textContent = data.current_profit_rate != null ? parseFloat(data.current_profit_rate).toFixed(2) + '%' : '';
+                row.appendChild(profitRateCell);
+
+                // 미실현 손익 (USDT)
+                const unrealizedPnlCell = document.createElement('td');
+                unrealizedPnlCell.textContent = data.unrealized_pnl != null ? parseFloat(data.unrealized_pnl).toLocaleString() : '';
+                row.appendChild(unrealizedPnlCell);
+
+                // 총 자산 (미실현 손익 포함) (USDT)
+                const totalWithPnlCell = document.createElement('td');
+                totalWithPnlCell.textContent = data.current_total_asset != null ? parseFloat(data.current_total_asset).toLocaleString() : '';
+                row.appendChild(totalWithPnlCell);
+
+                // 누적 수익금 (USDT)
+                const cumulativeProfitCell = document.createElement('td');
+                cumulativeProfitCell.textContent = data.cumulative_profit != null ? parseFloat(data.cumulative_profit).toLocaleString() : '';
+                row.appendChild(cumulativeProfitCell);
+
+                // 목표 수익금 (USDT) 및 설정 기능 추가
+                const targetProfitCell = document.createElement('td');
+                // 목표 수익금 표시 및 설정 기능 추가
+                const targetProfitInput = document.createElement('input');
+                targetProfitInput.type = 'number';
+                targetProfitInput.min = '0';
+                targetProfitInput.step = '0.01';
+                targetProfitInput.value = data.target_profit != null ? parseFloat(data.target_profit).toFixed(2) : '500';
+                targetProfitInput.classList.add('form-control', 'form-control-sm');
+                targetProfitInput.style.width = '100px';
+                targetProfitInput.id = `target-profit-${data.name}`;
+                targetProfitCell.appendChild(targetProfitInput);
+
+                // Set 버튼 추가
+                const setButton = document.createElement('button');
+                setButton.textContent = 'Set';
+                setButton.classList.add('btn', 'btn-primary', 'btn-sm', 'mt-1');
+                setButton.onclick = () => setTargetProfit(data.name);
+                targetProfitCell.appendChild(setButton);
+
+                row.appendChild(targetProfitCell);
+
+                // 서버 통신 상태
+                const serverStatusCell = document.createElement('td');
+                serverStatusCell.textContent = data.server_status || '';
+                if (data.server_status === 'Connected') {
+                    serverStatusCell.classList.add('status-connected');
+                } else {
+                    serverStatusCell.classList.add('status-disconnected');
+                }
+                row.appendChild(serverStatusCell);
+
+                // 타임스탬프
+                const timestampCell = document.createElement('td');
+                timestampCell.textContent = data.timestamp || '';
+                row.appendChild(timestampCell);
+
+                // 승인 버튼 추가
+                const approveCell = document.createElement('td');
+                const approveButton = document.createElement('button');
+                approveButton.textContent = '승인';
+                approveButton.classList.add('btn', 'btn-success', 'btn-sm');
+                approveButton.onclick = () => sendCommand('approve', data.name);
+                // 승인 상태에 따라 버튼 활성화/비활성화
+                approveButton.disabled = data.isApproved;
+                approveCell.appendChild(approveButton);
+                row.appendChild(approveCell);
+
+                // 승인취소 버튼 추가
+                const cancelApproveCell = document.createElement('td');
+                const cancelApproveButton = document.createElement('button');
+                cancelApproveButton.textContent = '승인취소';
+                cancelApproveButton.classList.add('btn', 'btn-warning', 'btn-sm');
+                cancelApproveButton.onclick = () => sendCommand('cancel_approve', data.name);
+                // 승인 상태에 따라 버튼 활성화/비활성화
+                cancelApproveButton.disabled = !data.isApproved;
+                cancelApproveButton.id = `cancel-approve-${data.name}`; // 버튼 식별을 위한 ID 설정
+                cancelApproveCell.appendChild(cancelApproveButton);
+                row.appendChild(cancelApproveCell);
+
+                // 목표 달성 열 추가
+                const goalAchievedCell = document.createElement('td');
+                if (data.cumulative_profit >= data.target_profit) {
+                    goalAchievedCell.textContent = '목표를 달성했습니다';
+                    goalAchievedCell.classList.add('text-success', 'fw-bold');
+                } else {
+                    goalAchievedCell.textContent = '';
+                }
+                row.appendChild(goalAchievedCell);
+
+                tbody.appendChild(row);
+
+                // 목표 수익금 달성 시 자동 승인취소 명령 전송
+                if (data.cumulative_profit >= data.target_profit && data.isApproved) {
+                    // 승인취소 버튼을 찾아 클릭
+                    const cancelButton = document.getElementById(`cancel-approve-${data.name}`);
+                    if (cancelButton && !cancelButton.disabled) {
+                        cancelButton.click();
+                        console.log(`자동으로 승인취소 버튼이 클릭되었습니다: ${data.name}`);
+                    }
+                }
+            });
+        }
+
+        // 서버로 명령 전송 함수
+        function sendCommand(command, clientName) {
+            socket.emit('send_command', { command: command, name: clientName });
+            console.log(`명령 전송: ${command} - ${clientName}`);
+        }
+
+        // 목표 수익금 설정 함수
+        function setTargetProfit(clientName) {
+            const input = document.getElementById(`target-profit-${clientName}`);
+            const targetProfit = parseFloat(input.value);
+            if (isNaN(targetProfit) || targetProfit <= 0) {
+                alert('유효한 목표 수익금을 입력하세요.');
+                return;
+            }
+
+            // 서버로 목표 수익금 전송
+            socket.emit('set_target_profit', { name: clientName, targetProfit: targetProfit });
+            console.log(`목표 수익금 설정: ${clientName} - ${targetProfit} USDT`);
+
+            // 현재 날짜 및 시간 가져오기
+            const currentTime = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+
+            // 목표 달성 메시지 표시 (선택 사항)
+            const container = document.getElementById('goal-message-container');
+            const alertDiv = document.createElement('div');
+            alertDiv.classList.add('alert', 'alert-info', 'alert-dismissible', 'fade', 'show');
+            alertDiv.role = 'alert';
+            alertDiv.innerHTML = `
+                <strong>${clientName}:</strong> 목표 수익금이 ${targetProfit.toLocaleString()} USDT로 설정되었습니다. (${currentTime})
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            container.appendChild(alertDiv);
+
+            // 자동으로 사라지도록 설정 (예: 5초 후)
+            setTimeout(() => {
+                const alert = bootstrap.Alert.getOrCreateInstance(alertDiv);
+                alert.close();
+            }, 5000);
+        }
+
+        // 목표 달성 메시지를 표시하는 함수
+        function showGoalAchievedMessage(name, message = '목표를 달성했습니다.') {
+            const container = document.getElementById('goal-message-container');
+            const alertDiv = document.createElement('div');
+            alertDiv.classList.add('alert', 'alert-success', 'alert-dismissible', 'fade', 'show');
+            alertDiv.role = 'alert';
+            alertDiv.innerHTML = `
+                <strong>${name}:</strong> ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            container.appendChild(alertDiv);
+
+            // 자동으로 사라지도록 설정 (예: 5초 후)
+            setTimeout(() => {
+                const alert = bootstrap.Alert.getOrCreateInstance(alertDiv);
+                alert.close();
+            }, 5000);
+        }
+
+        // Socket.IO 연결이 끊어졌을 때
+        socket.on('disconnect', () => {
+            console.log('서버와의 연결이 끊어졌습니다.');
+            // 모든 클라이언트의 상태를 'Disconnected'로 설정
+            Object.keys(clientData).forEach(name => {
+                clientData[name].server_status = 'Disconnected';
+                clientData[name].total_balance = 0;
+                clientData[name].current_profit_rate = 0;
+                clientData[name].unrealized_pnl = 0;
+                clientData[name].current_total_asset = 0;
+            });
+            updateTable();
+        });
+
+        // 서버로부터 목표 달성 이벤트 수신 시 승인취소 명령 자동 전송
+        socket.on('goal_achieved', (data) => {
+            const { name } = data;
+            // 승인취소 명령 전송
+            sendCommand('cancel_approve', name);
+            console.log(`목표 달성: 승인취소 명령을 전송했습니다: ${name}`);
+            // 목표 달성 메시지 표시
+            showGoalAchievedMessage(name);
+        });
+    </script>
+</body>
+</html>

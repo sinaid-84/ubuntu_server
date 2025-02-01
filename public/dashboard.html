@@ -1,0 +1,349 @@
+<!-- public/dashboard.html -->
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>실시간 거래 대시보드</title>
+    <!-- Bootstrap CSS 로드 -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+      integrity="sha384-ENjdO4Dr2bkBIFxQpeoAAtc+LyA+6PaSHH3bzqlD2taSXZ8o3bmFf8n5XhIlyQ8w"
+      crossorigin="anonymous"
+    />
+    <!-- Socket.IO 클라이언트 스크립트 로드 -->
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js" crossorigin="anonymous"></script>
+    <style>
+        body {
+            margin: 20px;
+            background-color: #f8f9fa;
+        }
+        h1 {
+            margin-bottom: 30px;
+        }
+        .table {
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+        .table th,
+        .table td {
+            border: 1px solid #dee2e6;
+            text-align: center;
+            vertical-align: middle;
+        }
+        .table thead th {
+            background-color: #343a40;
+            color: #fff;
+        }
+        .status-connected {
+            color: green;
+            font-weight: bold;
+        }
+        .status-disconnected {
+            color: red;
+            font-weight: bold;
+        }
+        .row-connected {
+            background-color: #e9f7ef; /* 연한 녹색 배경 */
+        }
+        .row-disconnected {
+            background-color: #fbeeee; /* 연한 빨간색 배경 */
+        }
+        .goal-message {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/logout" class="btn btn-danger mb-3">로그아웃</a>
+        <h1 class="text-center">실시간 거래 대시보드</h1>
+        <!-- 거래 정보 테이블 -->
+        <table id="data-table" class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>이름</th>
+                    <th>사용자 IP 주소</th>
+                    <th>총 자산 (USDT)</th>
+                    <th>현재 수익율 (%)</th>
+                    <th>미실현 손익 (USDT)</th>
+                    <th>총 자산 (미실현 손익 포함) (USDT)</th>
+                    <th>누적 수익금 (USDT)</th>
+                    <th>목표 수익금 (USDT)</th>
+                    <th>서버 통신 상태</th>
+                    <th>타임스탬프</th>
+                    <th>승인</th>
+                    <th>승인취소</th>
+                    <th>목표 달성</th>
+                </tr>
+            </thead>
+            <tbody id="data-body">
+                <!-- 실시간 거래 정보가 여기에 업데이트됩니다 -->
+            </tbody>
+        </table>
+    </div>
+
+    <div id="goal-message-container" class="goal-message"></div>
+
+    <!-- Bootstrap JS 로드 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js" integrity="sha384-ROAPyY4h6a9kAqV6iEOJq9k6lZPqqvIy3s6eGZKlj/DuCkC8rjCGY3bEhVB0jRiS" crossorigin="anonymous"></script>
+
+    <script>
+        const socket = io();
+
+        const clientData = {};
+        const clientTimeouts = {};
+        const DATA_TIMEOUT = 15000;
+
+        socket.on('connect', () => {
+            console.log('서버에 연결되었습니다.');
+            socket.emit('request_initial_data');
+        });
+
+        socket.on('initial_data', (allUserData) => {
+            console.log('초기 데이터 수신:', allUserData);
+            allUserData.forEach(data => {
+                clientData[data.name] = data;
+            });
+            updateTable();
+        });
+
+        socket.on('update_user_info', (data) => {
+            console.log('사용자 정보 업데이트:', data);
+            clientData[data.name] = {
+                ...clientData[data.name],
+                ...data
+            };
+            updateTable();
+        });
+
+        socket.on('update_target_profit', (data) => {
+            const { name, targetProfit } = data;
+            if (clientData[name]) {
+                clientData[name].target_profit = targetProfit;
+                console.log(`목표 수익금 업데이트: ${name} - ${targetProfit} USDT`);
+                updateTable();
+            }
+        });
+
+        socket.on('update_data', (data) => {
+            console.log('데이터 업데이트 수신:', data);
+            clientData[data.name] = {
+                ...clientData[data.name],
+                ...data
+            };
+
+            // 기존 타이머 초기화
+            if (clientTimeouts[data.name]) {
+                clearTimeout(clientTimeouts[data.name]);
+            }
+
+            clientTimeouts[data.name] = setTimeout(() => {
+                clientData[data.name].server_status = 'Disconnected';
+                clientData[data.name].total_balance = 0;
+                clientData[data.name].current_profit_rate = 0;
+                clientData[data.name].unrealized_pnl = 0;
+                clientData[data.name].current_total_asset = 0;
+                updateTable();
+            }, DATA_TIMEOUT);
+
+            updateTable();
+        });
+
+        socket.on('update_approval_status', (data) => {
+            console.log('승인 상태 업데이트:', data);
+            if (clientData[data.name]) {
+                clientData[data.name].isApproved = data.isApproved;
+                updateTable();
+            }
+        });
+
+        socket.on('goal_achieved', (data) => {
+            const { name } = data;
+            console.log(`목표 달성 이벤트: ${name}`);
+            // 목표 달성 시 승인취소 명령 자동 전송
+            sendCommand('cancel_approve', name);
+            showGoalAchievedMessage(name);
+        });
+
+        socket.on('disconnect', () => {
+            console.log('서버와의 연결이 끊어졌습니다.');
+            Object.keys(clientData).forEach(name => {
+                clientData[name].server_status = 'Disconnected';
+                clientData[name].total_balance = 0;
+                clientData[name].current_profit_rate = 0;
+                clientData[name].unrealized_pnl = 0;
+                clientData[name].current_total_asset = 0;
+            });
+            updateTable();
+        });
+
+        function updateTable() {
+            const tbody = document.getElementById('data-body');
+            tbody.innerHTML = '';
+
+            Object.values(clientData).forEach(data => {
+                const row = document.createElement('tr');
+
+                if (data.server_status === 'Connected') {
+                    row.classList.add('row-connected');
+                } else {
+                    row.classList.add('row-disconnected');
+                }
+
+                const nameCell = document.createElement('td');
+                nameCell.textContent = data.name || '';
+                row.appendChild(nameCell);
+
+                const ipCell = document.createElement('td');
+                ipCell.textContent = data.user_ip || '';
+                row.appendChild(ipCell);
+
+                const totalBalanceCell = document.createElement('td');
+                totalBalanceCell.textContent = data.total_balance != null ? parseFloat(data.total_balance).toLocaleString() : '';
+                row.appendChild(totalBalanceCell);
+
+                const profitRateCell = document.createElement('td');
+                profitRateCell.textContent = data.current_profit_rate != null ? parseFloat(data.current_profit_rate).toFixed(2) + '%' : '';
+                row.appendChild(profitRateCell);
+
+                const unrealizedPnlCell = document.createElement('td');
+                unrealizedPnlCell.textContent = data.unrealized_pnl != null ? parseFloat(data.unrealized_pnl).toLocaleString() : '';
+                row.appendChild(unrealizedPnlCell);
+
+                const totalWithPnlCell = document.createElement('td');
+                totalWithPnlCell.textContent = data.current_total_asset != null ? parseFloat(data.current_total_asset).toLocaleString() : '';
+                row.appendChild(totalWithPnlCell);
+
+                const profitCell = document.createElement('td');
+                // 기존 display_profit 사용 대신 display_profit 사용
+                profitCell.textContent = data.display_profit != null ? parseFloat(data.display_profit).toLocaleString() : '';
+                row.appendChild(profitCell);
+
+                const targetProfitCell = document.createElement('td');
+                const targetProfitInput = document.createElement('input');
+                targetProfitInput.type = 'number';
+                targetProfitInput.min = '0';
+                targetProfitInput.step = '0.01';
+                targetProfitInput.value = data.target_profit != null ? parseFloat(data.target_profit).toFixed(2) : '500';
+                targetProfitInput.classList.add('form-control', 'form-control-sm');
+                targetProfitInput.style.width = '100px';
+                targetProfitInput.id = `target-profit-${data.name}`;
+                targetProfitCell.appendChild(targetProfitInput);
+
+                const setButton = document.createElement('button');
+                setButton.textContent = 'Set';
+                setButton.classList.add('btn', 'btn-primary', 'btn-sm', 'mt-1');
+                setButton.onclick = () => setTargetProfit(data.name);
+                targetProfitCell.appendChild(setButton);
+
+                row.appendChild(targetProfitCell);
+
+                const serverStatusCell = document.createElement('td');
+                serverStatusCell.textContent = data.server_status || '';
+                if (data.server_status === 'Connected') {
+                    serverStatusCell.classList.add('status-connected');
+                } else {
+                    serverStatusCell.classList.add('status-disconnected');
+                }
+                row.appendChild(serverStatusCell);
+
+                const timestampCell = document.createElement('td');
+                timestampCell.textContent = data.timestamp || '';
+                row.appendChild(timestampCell);
+
+                const approveCell = document.createElement('td');
+                const approveButton = document.createElement('button');
+                approveButton.textContent = '승인';
+                approveButton.classList.add('btn', 'btn-success', 'btn-sm');
+                approveButton.onclick = () => sendCommand('approve', data.name);
+                approveButton.disabled = data.isApproved;
+                approveCell.appendChild(approveButton);
+                row.appendChild(approveCell);
+
+                const cancelApproveCell = document.createElement('td');
+                const cancelApproveButton = document.createElement('button');
+                cancelApproveButton.textContent = '승인취소';
+                cancelApproveButton.classList.add('btn', 'btn-warning', 'btn-sm');
+                cancelApproveButton.onclick = () => sendCommand('cancel_approve', data.name);
+                cancelApproveButton.disabled = !data.isApproved;
+                cancelApproveButton.id = `cancel-approve-${data.name}`;
+                cancelApproveCell.appendChild(cancelApproveButton);
+                row.appendChild(cancelApproveCell);
+
+                const goalAchievedCell = document.createElement('td');
+                if (data.display_profit >= data.target_profit) {
+                    goalAchievedCell.textContent = '목표를 달성했습니다';
+                    goalAchievedCell.classList.add('text-success', 'fw-bold');
+                } else {
+                    goalAchievedCell.textContent = '';
+                }
+                row.appendChild(goalAchievedCell);
+
+                tbody.appendChild(row);
+
+                // 목표 달성 시 자동 승인취소 트리거 (원한다면 유지, 원치 않으면 제거 가능)
+                if (data.display_profit >= data.target_profit && data.isApproved) {
+                    const cancelButton = document.getElementById(`cancel-approve-${data.name}`);
+                    if (cancelButton && !cancelButton.disabled) {
+                        cancelButton.click();
+                        console.log(`자동으로 승인취소 버튼이 클릭되었습니다: ${data.name}`);
+                    }
+                }
+            });
+        }
+
+        function sendCommand(command, clientName) {
+            socket.emit('send_command', { command: command, name: clientName });
+            console.log(`명령 전송: ${command} - ${clientName}`);
+        }
+
+        function setTargetProfit(clientName) {
+            const input = document.getElementById(`target-profit-${clientName}`);
+            const targetProfit = parseFloat(input.value);
+            if (isNaN(targetProfit) || targetProfit <= 0) {
+                alert('유효한 목표 수익금을 입력하세요.');
+                return;
+            }
+            socket.emit('set_target_profit', { name: clientName, targetProfit: targetProfit });
+            console.log(`목표 수익금 설정: ${clientName} - ${targetProfit} USDT`);
+            showTemporaryMessage(`${clientName}의 목표 수익금이 ${targetProfit.toLocaleString()} USDT로 설정되었습니다.`);
+        }
+
+        function showTemporaryMessage(message) {
+            const container = document.getElementById('goal-message-container');
+            const alertDiv = document.createElement('div');
+            alertDiv.classList.add('alert', 'alert-info', 'alert-dismissible', 'fade', 'show');
+            alertDiv.role = 'alert';
+            alertDiv.innerHTML = `
+                <strong>알림:</strong> ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            container.appendChild(alertDiv);
+            setTimeout(() => {
+                const alert = bootstrap.Alert.getOrCreateInstance(alertDiv);
+                alert.close();
+            }, 5000);
+        }
+
+        function showGoalAchievedMessage(name, message = '목표를 달성했습니다.') {
+            const container = document.getElementById('goal-message-container');
+            const alertDiv = document.createElement('div');
+            alertDiv.classList.add('alert', 'alert-success', 'alert-dismissible', 'fade', 'show');
+            alertDiv.role = 'alert';
+            alertDiv.innerHTML = `
+                <strong>${name}:</strong> ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            container.appendChild(alertDiv);
+            setTimeout(() => {
+                const alert = bootstrap.Alert.getOrCreateInstance(alertDiv);
+                alert.close();
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

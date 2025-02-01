@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>시스템 설정</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>시스템 설정</h1>
+            <a href="/dashboard" class="btn btn-primary">대시보드로 돌아가기</a>
+        </div>
+
+        <div class="row">
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">서버 설정</h3>
+                        <form id="serverSettingsForm">
+                            <div class="mb-3">
+                                <label class="form-label">기본 목표 수익률 (%)</label>
+                                <input type="number" class="form-control" id="defaultTargetProfit" min="0" step="0.1">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">데이터 보관 기간 (일)</label>
+                                <input type="number" class="form-control" id="dataRetentionDays" min="1">
+                            </div>
+                            <button type="submit" class="btn btn-primary">저장</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-6 mb-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">알림 설정</h3>
+                        <form id="notificationSettingsForm">
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="userConnectNotif">
+                                <label class="form-check-label">사용자 연결 알림</label>
+                            </div>
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="targetAchievedNotif">
+                                <label class="form-check-label">목표 달성 알림</label>
+                            </div>
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="errorNotif">
+                                <label class="form-check-label">오류 발생 알림</label>
+                            </div>
+                            <button type="submit" class="btn btn-primary">저장</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 mb-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h3 class="card-title">시스템 정보</h3>
+                        <div class="table-responsive">
+                            <table class="table">
+                                <tbody>
+                                    <tr>
+                                        <th>서버 버전</th>
+                                        <td id="serverVersion">1.0.0</td>
+                                    </tr>
+                                    <tr>
+                                        <th>실행 시간</th>
+                                        <td id="uptime">0일 0시간</td>
+                                    </tr>
+                                    <tr>
+                                        <th>연결된 클라이언트 수</th>
+                                        <td id="connectedClients">0</td>
+                                    </tr>
+                                    <tr>
+                                        <th>메모리 사용량</th>
+                                        <td id="memoryUsage">0 MB</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const socket = io();
+
+        // 폼 제출 처리
+        document.getElementById('serverSettingsForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const settings = {
+                defaultTargetProfit: parseFloat(document.getElementById('defaultTargetProfit').value),
+                dataRetentionDays: parseInt(document.getElementById('dataRetentionDays').value)
+            };
+            socket.emit('update_server_settings', settings);
+        });
+
+        document.getElementById('notificationSettingsForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const settings = {
+                userConnect: document.getElementById('userConnectNotif').checked,
+                targetAchieved: document.getElementById('targetAchievedNotif').checked,
+                error: document.getElementById('errorNotif').checked
+            };
+            socket.emit('update_notification_settings', settings);
+        });
+
+        // 시스템 정보 업데이트
+        socket.on('system_info', (data) => {
+            document.getElementById('serverVersion').textContent = data.version;
+            document.getElementById('uptime').textContent = data.uptime;
+            document.getElementById('connectedClients').textContent = data.clients;
+            document.getElementById('memoryUsage').textContent = data.memory;
+        });
+
+        // 초기 데이터 요청
+        socket.emit('request_system_info');
+    </script>
+</body>
+</html>

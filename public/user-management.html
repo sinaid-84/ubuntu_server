@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사용자 관리</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>사용자 관리</h1>
+            <a href="/dashboard" class="btn btn-primary">대시보드로 돌아가기</a>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                <h2 class="card-title mb-4">사용자 목록</h2>
+                <div class="table-responsive">
+                    <table class="table table-striped" id="userTable">
+                        <thead>
+                            <tr>
+                                <th>이름</th>
+                                <th>IP 주소</th>
+                                <th>상태</th>
+                                <th>누적 수익</th>
+                                <th>목표 수익</th>
+                                <th>승인 상태</th>
+                                <th>마지막 활동</th>
+                                <th>작업</th>
+                            </tr>
+                        </thead>
+                        <tbody id="userTableBody">
+                            <!-- 사용자 데이터가 여기에 동적으로 추가됨 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 목표 수익 설정 모달 -->
+    <div class="modal fade" id="targetProfitModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">목표 수익 설정</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="number" class="form-control" id="targetProfitInput" min="0" step="0.01">
+                    <input type="hidden" id="selectedUsername">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="button" class="btn btn-primary" id="saveTargetProfit">저장</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const socket = io();
+        const targetProfitModal = new bootstrap.Modal(document.getElementById('targetProfitModal'));
+
+        socket.on('initial_data', (data) => {
+            updateUserTable(data);
+        });
+
+        socket.on('update_user_info', (data) => {
+            socket.emit('request_initial_data');
+        });
+
+        function updateUserTable(users) {
+            const tbody = document.getElementById('userTableBody');
+            tbody.innerHTML = '';
+
+            users.forEach(user => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${user.name}</td>
+                    <td>${user.user_ip}</td>
+                    <td>${user.server_status}</td>
+                    <td>${user.cumulative_profit?.toFixed(2) || 0} USDT</td>
+                    <td>${user.target_profit?.toFixed(2) || 0} USDT</td>
+                    <td>${user.isApproved ? '승인됨' : '미승인'}</td>
+                    <td>${user.timestamp}</td>
+                    <td>
+                        <button class="btn btn-sm btn-${user.isApproved ? 'warning' : 'success'}" 
+                                onclick="toggleApproval('${user.name}', ${user.isApproved})">
+                            ${user.isApproved ? '승인 취소' : '승인'}
+                        </button>
+                        <button class="btn btn-sm btn-info" 
+                                onclick="showTargetProfitModal('${user.name}', ${user.target_profit})">
+                            목표 설정
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function toggleApproval(username, currentStatus) {
+            const command = currentStatus ? 'cancel_approve' : 'approve';
+            socket.emit('send_command', { command, name: username });
+        }
+
+        function showTargetProfitModal(username, currentTarget) {
+            document.getElementById('targetProfitInput').value = currentTarget;
+            document.getElementById('selectedUsername').value = username;
+            targetProfitModal.show();
+        }
+
+        document.getElementById('saveTargetProfit').addEventListener('click', () => {
+            const username = document.getElementById('selectedUsername').value;
+            const targetProfit = parseFloat(document.getElementById('targetProfitInput').value);
+            
+            if (!isNaN(targetProfit) && targetProfit > 0) {
+                socket.emit('set_target_profit', {
+                    name: username,
+                    targetProfit: targetProfit
+                });
+                targetProfitModal.hide();
+            }
+        });
+
+        // 초기 데이터 요청
+        socket.emit('request_initial_data');
+    </script>
+</body>
+</html>

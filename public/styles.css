@@ -1,0 +1,183 @@
+/* public/styles.css */
+
+/* 색상 변수 정의 */
+:root {
+    --primary-color: #007bff;
+    --secondary-color: #6c757d;
+    --success-color: #28a745;
+    --danger-color: #dc3545;
+    --background-color: #f4f4f4;
+    --container-bg-color: #ffffff;
+    --text-color: #333333;
+    --light-text-color: #666666;
+    --border-color: #e0e0e0;
+    --shadow-color: rgba(0, 0, 0, 0.1);
+    --border-radius: 10px;
+    --transition-speed: 0.3s;
+    --button-padding: 15px 25px;
+    --font-family: 'Noto Sans KR', sans-serif;
+    --status-dot-size: 15px;
+}
+
+/* 전체 페이지 스타일 */
+body {
+    font-family: var(--font-family);
+    background-color: var(--background-color);
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+}
+
+/* 컨테이너 스타일 */
+.container {
+    background-color: var(--container-bg-color);
+    padding: 50px;
+    border-radius: var(--border-radius);
+    box-shadow: 0 4px 12px var(--shadow-color);
+    max-width: 900px;
+    width: 90%;
+    text-align: center;
+}
+
+/* 제목 스타일 */
+h1 {
+    color: var(--text-color);
+    margin-bottom: 20px;
+    font-size: 2.5rem;
+    font-weight: 700;
+}
+
+/* 설명 문단 스타일 */
+p {
+    color: var(--light-text-color);
+    line-height: 1.8;
+    margin-bottom: 30px;
+    font-size: 1.1rem;
+}
+
+/* 리스트 스타일 */
+ul {
+    list-style-type: disc;
+    padding-left: 20px;
+    text-align: left;
+    margin: 20px auto;
+}
+
+/* 버튼 공통 스타일 */
+.download-button, .dashboard-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    padding: var(--button-padding);
+    margin-top: 20px;
+    margin-right: 10px;
+    border: none;
+    border-radius: 5px;
+    text-decoration: none;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color var(--transition-speed), transform var(--transition-speed), box-shadow var(--transition-speed);
+}
+
+/* 다운로드 버튼 스타일 */
+.download-button {
+    background-color: var(--success-color);
+}
+
+.download-button:hover {
+    background-color: #218838; /* 약간 더 어둡게 */
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px var(--shadow-color);
+}
+
+/* 대시보드 버튼 스타일 */
+.dashboard-button {
+    background-color: var(--primary-color);
+}
+
+.dashboard-button:hover {
+    background-color: #0069d9; /* 약간 더 어둡게 */
+    transform: translateY(-2px);
+    box-shadow: 0 2px 8px var(--shadow-color);
+}
+
+/* 아이콘 스타일 */
+.download-button i, .dashboard-button i {
+    margin-right: 10px;
+    font-size: 1.2rem;
+}
+
+/* 반응형 디자인 */
+@media (max-width: 768px) {
+    .container {
+        padding: 30px 20px;
+    }
+
+    h1 {
+        font-size: 2rem;
+    }
+
+    p {
+        font-size: 1rem;
+    }
+
+    .download-button, .dashboard-button {
+        padding: 12px 20px;
+        font-size: 0.9rem;
+    }
+
+    .download-button i, .dashboard-button i {
+        font-size: 1rem;
+    }
+}
+
+/* 유틸리티 클래스 */
+.text-left {
+    text-align: left;
+}
+
+/* 실시간 서버 상태 표시기 스타일 */
+.status-indicator {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    display: flex;
+    align-items: center;
+    z-index: 1000; /* 다른 요소보다 위에 표시 */
+}
+
+.status-indicator .status-dot {
+    width: var(--status-dot-size);
+    height: var(--status-dot-size);
+    border-radius: 50%;
+    margin-right: 10px;
+    background-color: #dc3545; /* 기본: 빨간색 (Disconnected) */
+    transition: background-color var(--transition-speed);
+}
+
+.status-indicator.connected .status-dot {
+    background-color: #28a745; /* 연결됨: 초록색 */
+}
+
+.status-indicator.error .status-dot {
+    background-color: #ffc107; /* 오류: 노란색 */
+}
+
+#realtime-updates {
+    background-color: #ffffff;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    box-shadow: 0 2px 4px var(--shadow-color);
+    height: 200px;
+    overflow-y: auto;
+    text-align: left;
+}
+
+#realtime-updates p {
+    margin-bottom: 10px;
+}
