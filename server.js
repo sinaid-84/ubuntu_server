@@ -37,7 +37,7 @@ const logger = createLogger({
 
 const app = express();
 app.use(cors({
-    origin: process.env.SERVER_ORIGIN || "http://localhost:5000",
+    origin: process.env.SERVER_ORIGIN || "http://sinaid.co.kr",
     methods: ["GET", "POST"],
     credentials: true
 }));
@@ -61,7 +61,7 @@ app.use(session({
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: process.env.SERVER_ORIGIN || "http://localhost:5000",
+        origin: process.env.SERVER_ORIGIN || "http://sinaid.co.kr",
         methods: ["GET", "POST"],
         credentials: true
     },
