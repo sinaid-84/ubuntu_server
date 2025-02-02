@@ -8,7 +8,7 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const bodyParser = require('body-parser');
 const { v4: uuidv4 } = require('uuid');
-const fs = require('fs'); // fs 모듈 추가
+const fs = require('fs');
 const winston = require('winston');
 const { createLogger, format, transports } = winston;
 require('winston-daily-rotate-file');
@@ -37,7 +37,7 @@ const logger = createLogger({
 
 const app = express();
 app.use(cors({
-    origin: process.env.SERVER_ORIGIN || "http://sinaid.co.kr",
+    origin: process.env.SERVER_ORIGIN || "http://localhost:5000",
     methods: ["GET", "POST"],
     credentials: true
 }));
@@ -52,7 +52,7 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false,
+        secure: false, // HTTPS 사용 시 true로 변경
         httpOnly: true,
         maxAge: 60 * 60 * 1000
     }
@@ -61,7 +61,7 @@ app.use(session({
 const server = http.createServer(app);
 const io = socketIo(server, {
     cors: {
-        origin: process.env.SERVER_ORIGIN || "http://sinaid.co.kr",
+        origin: process.env.SERVER_ORIGIN || "http://localhost:5000",
         methods: ["GET", "POST"],
         credentials: true
     },
@@ -257,9 +257,8 @@ io.on('connection', (socket) => {
             logger.info(`사용자 ${data.name}의 상태 업데이트: ${JSON.stringify(updatedData)}`);
             io.emit('update_data', updatedData);
 
-            // 목표 달성 시 이벤트 처리 (필요하다면)
+            // 목표 달성 이벤트 처리 (필요한 경우)
             if (updatedData.display_profit >= updatedData.target_profit && updatedData.isApproved) {
-                // 목표 달성 이벤트 발생
                 io.emit('goal_achieved', { name: updatedData.name });
             }
 
@@ -284,22 +283,13 @@ io.on('connection', (socket) => {
             }
 
             if (command === 'approve') {
-                io.to(userData.socketId).emit('approve', { name: name });
-                io.emit('update_approval_status', {
-                    name: name,
-                    isApproved: true
-                });
-
+                io.to(userData.socketId).emit('approve', { name });
+                io.emit('update_approval_status', { name, isApproved: true });
                 userData.isApproved = true;
                 usersData.set(name, userData);
-
             } else if (command === 'cancel_approve') {
-                io.to(userData.socketId).emit('cancel_approve', { name: name });
-                io.emit('update_approval_status', {
-                    name: name,
-                    isApproved: false
-                });
-
+                io.to(userData.socketId).emit('cancel_approve', { name });
+                io.emit('update_approval_status', { name, isApproved: false });
                 userData.isApproved = false;
                 usersData.set(name, userData);
             }
@@ -319,16 +309,9 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            io.to(userData.socketId).emit('set_target_profit', {
-                targetProfit: targetProfit
-            });
-
-            const updatedData = {
-                ...userData,
-                target_profit: targetProfit
-            };
+            io.to(userData.socketId).emit('set_target_profit', { targetProfit });
+            const updatedData = { ...userData, target_profit: targetProfit };
             usersData.set(name, updatedData);
-
             io.emit('update_data', updatedData);
             
         } catch (error) {
