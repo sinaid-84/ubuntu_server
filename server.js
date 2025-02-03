@@ -52,7 +52,7 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false, // HTTPS 사용 시 true로 변경
+        secure: false,
         httpOnly: true,
         maxAge: 60 * 60 * 1000
     }
@@ -175,11 +175,11 @@ io.on('connection', (socket) => {
                 current_profit_rate: user.current_profit_rate || 0,
                 unrealized_pnl: user.unrealized_pnl || 0,
                 current_total_asset: user.current_total_asset || 0,
+                cumulative_profit: user.cumulative_profit || 0,
                 server_status: user.server_status || 'Disconnected',
                 timestamp: user.timestamp || new Date().toISOString(),
-                cumulative_profit: user.cumulative_profit || 0,
-                target_profit: user.target_profit || 500,
                 isApproved: user.isApproved || false,
+                target_profit: user.target_profit || 500,
                 display_profit: user.display_profit || 0
             }));
             socket.emit('initial_data', allUserData);
@@ -195,7 +195,6 @@ io.on('connection', (socket) => {
                 socket.emit('error', { message: '잘못된 사용자 정보 데이터입니다.' });
                 return;
             }
-
             const userData = usersData.get(data.name) || {};
             const updatedData = {
                 ...userData,
@@ -204,7 +203,8 @@ io.on('connection', (socket) => {
                 server_status: data.server_status,
                 socketId: socket.id,
                 timestamp: data.timestamp || new Date().toISOString(),
-                isApproved: data.isApproved !== undefined ? data.isApproved : (userData.isApproved || false),
+                // 여기서 무조건 isApproved를 false로 초기화하여, 관리자가 수동으로 승인할 수 있도록 합니다.
+                isApproved: false,
                 target_profit: data.target_profit !== undefined ? data.target_profit : (userData.target_profit || 500),
                 display_profit: data.display_profit != null ? data.display_profit : (userData.display_profit || 0),
                 cumulative_profit: data.cumulative_profit !== undefined ? data.cumulative_profit : (userData.cumulative_profit || 0)
@@ -257,11 +257,6 @@ io.on('connection', (socket) => {
             logger.info(`사용자 ${data.name}의 상태 업데이트: ${JSON.stringify(updatedData)}`);
             io.emit('update_data', updatedData);
 
-            // 목표 달성 이벤트 처리 (필요한 경우)
-            if (updatedData.display_profit >= updatedData.target_profit && updatedData.isApproved) {
-                io.emit('goal_achieved', { name: updatedData.name });
-            }
-
         } catch (error) {
             logger.error('데이터 업데이트 오류:', error);
             socket.emit('error', { message: '데이터 업데이트 중 오류가 발생했습니다.' });
@@ -283,13 +278,22 @@ io.on('connection', (socket) => {
             }
 
             if (command === 'approve') {
-                io.to(userData.socketId).emit('approve', { name });
-                io.emit('update_approval_status', { name, isApproved: true });
+                io.to(userData.socketId).emit('approve', { name: name });
+                io.emit('update_approval_status', {
+                    name: name,
+                    isApproved: true
+                });
+
                 userData.isApproved = true;
                 usersData.set(name, userData);
+
             } else if (command === 'cancel_approve') {
-                io.to(userData.socketId).emit('cancel_approve', { name });
-                io.emit('update_approval_status', { name, isApproved: false });
+                io.to(userData.socketId).emit('cancel_approve', { name: name });
+                io.emit('update_approval_status', {
+                    name: name,
+                    isApproved: false
+                });
+
                 userData.isApproved = false;
                 usersData.set(name, userData);
             }
@@ -309,9 +313,16 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            io.to(userData.socketId).emit('set_target_profit', { targetProfit });
-            const updatedData = { ...userData, target_profit: targetProfit };
+            io.to(userData.socketId).emit('set_target_profit', {
+                targetProfit: targetProfit
+            });
+
+            const updatedData = {
+                ...userData,
+                target_profit: targetProfit
+            };
             usersData.set(name, updatedData);
+
             io.emit('update_data', updatedData);
             
         } catch (error) {
