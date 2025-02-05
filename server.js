@@ -246,8 +246,14 @@ io.on('connection', (socket) => {
                   ? userData.target_profit || 500
                   : (data.target_profit || userData.target_profit || 500),
                 isApproved: data.isApproved || userData.isApproved || false,
-                socketId: socket.id
+                socketId: socket.id,
+    
+                // **추가된 필드들**
+                position: data.position || userData.position || 'NONE',  // 포지션 상태: 'LONG', 'SHORT', 'NONE'
+                coin: data.coin || userData.coin || '',                 // 거래 코인 (예: 'BTCUSDT')
+                leverage: data.leverage || userData.leverage || 1         // 레버리지 사용량 (예: 20)
             };
+    
             usersData.set(data.name, updatedData);
             logger.info(`사용자 ${data.name}의 상태 업데이트: ${JSON.stringify(updatedData)}`);
             io.emit('update_data', updatedData);
@@ -256,6 +262,7 @@ io.on('connection', (socket) => {
             socket.emit('error', { message: '데이터 업데이트 중 오류가 발생했습니다.' });
         }
     });
+    
 
     socket.on('send_command', async (data) => {
         try {
