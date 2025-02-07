@@ -57,8 +57,8 @@
         integrity="sha384-ROAPyY4h6a9kAqV6iEOJq9k6lZPqqvIy3s6eGZKlj/DuCkC8rjCGY3bEhVB0jRiS" crossorigin="anonymous"></script>
 <script>
   // 전역 객체: 각 사용자의 목표 수익금 편집 상태 및 입력 값 저장
-  const targetProfitEditing = {};    // { username: true/false }
-  const targetProfitUserInput = {};    // { username: "입력된 값" }
+  const targetProfitEditing = {};    // 예: { 'user1': true }
+  const targetProfitUserInput = {};    // 예: { 'user1': '600.00' }
   
   const socket = io();
   const clientData = {};
@@ -99,7 +99,7 @@
     if (!data.timestamp) {
       data.timestamp = new Date().toISOString();
     }
-    // 클라이언트에서 편집 중인 목표 수익금 값은 유지
+    // 편집 중인 목표 수익금 값은 유지
     clientData[data.name] = { ...clientData[data.name], ...data };
     if (clientTimeouts[data.name]) {
       clearTimeout(clientTimeouts[data.name]);
@@ -179,12 +179,15 @@
       const approveDisabled = data.isApproved ? 'disabled' : '';
       const cancelDisabled = !data.isApproved ? 'disabled' : '';
 
-      // 목표 수익금 입력 필드와 Set 버튼 (단순 HTML)
-      const targetProfitValue = data.target_profit != null ? parseFloat(data.target_profit).toFixed(2) : '500';
-      const targetProfitHTML = `<input type="number" min="0" step="0.01" value="${targetProfitValue}" class="form-control form-control-sm" style="width: 100px;" id="target-profit-${data.name}" onfocus="targetProfitEditing['${data.name}']=true" oninput="targetProfitUserInput['${data.name}']=this.value">
+      // 목표 수익금: 사용자가 편집 중이면 targetProfitUserInput, 아니면 저장된 값 혹은 기본값 '500'
+      let currentValue = data.target_profit != null ? parseFloat(data.target_profit).toFixed(2) : '500';
+      if (targetProfitEditing[data.name] && targetProfitUserInput[data.name] !== undefined) {
+        currentValue = targetProfitUserInput[data.name];
+      }
+      const targetProfitHTML = `<input type="number" min="0" step="0.01" value="${currentValue}" class="form-control form-control-sm" style="width: 100px;" id="target-profit-${data.name}" onfocus="targetProfitEditing['${data.name}']=true" oninput="targetProfitUserInput['${data.name}']=this.value">
                                  <button class="btn btn-primary btn-sm mt-1" onclick="setTargetProfit('${data.name}')">Set</button>`;
 
-      // 현재 포지션 상태 처리 (영어 대문자로, 색상 적용)
+      // 포지션 상태 처리 (LONG: 초록, SHORT: 빨강, 없음: 검정)
       let positionText = '없음';
       let positionColor = 'black';
       if (data.position) {
@@ -223,13 +226,11 @@
     tbody.innerHTML = html;
   }
 
-  // 명령 전송 함수
   function sendCommand(command, clientName) {
     socket.emit('send_command', { command: command, name: clientName });
     console.log(`명령 전송: ${command} - ${clientName}`);
   }
 
-  // 목표 수익금 설정 함수
   function setTargetProfit(clientName) {
     const input = document.getElementById(`target-profit-${clientName}`);
     const targetProfit = parseFloat(input.value);
@@ -244,7 +245,6 @@
     showTemporaryMessage(`${clientName}의 목표 수익금이 ${targetProfit.toLocaleString()} USDT로 설정되었습니다.`);
   }
 
-  // 임시 메시지 표시 함수
   function showTemporaryMessage(message) {
     const container = document.getElementById('goal-message-container');
     const alertDiv = document.createElement('div');
@@ -255,7 +255,6 @@
     setTimeout(() => { bootstrap.Alert.getOrCreateInstance(alertDiv).close(); }, 5000);
   }
 
-  // 목표 달성 메시지 표시 함수
   function showGoalAchievedMessage(name, message = '목표를 달성했습니다.') {
     const container = document.getElementById('goal-message-container');
     const alertDiv = document.createElement('div');
